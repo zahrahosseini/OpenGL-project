@@ -1,0 +1,244 @@
+unit Unit1;
+
+interface
+
+uses
+  Windows, Messages, SysUtils, Classes, Graphics, Controls,
+   Forms, Dialogs, OpenGL, Unit2, StdCtrls,glut;
+
+type
+  TForm1 = class(TForm)
+    procedure FormCreate(Sender: TObject);
+    procedure FormDestroy(Sender: TObject);
+    procedure FormPaint(Sender: TObject);
+    procedure FormResize(Sender: TObject);
+    procedure FormMouseDown(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: Integer);
+    procedure FormKeyDown(Sender: TObject; var Key: Word;
+      Shift: TShiftState);
+  private
+    { Private declarations }
+  public
+    { Public declarations }
+  end;
+
+var
+  Form1: TForm1;
+  xo,yo,xc,yc:Double;
+  m:array [1..30]of Double;
+  b:array [1..30]of Double;
+  AX:array [1..30]of Double;
+  AY:array [1..30]of Double;
+  count:Integer;
+  f,EN:Integer;
+
+implementation
+{$R *.DFM}
+type T3D_Point = array [1..3] of Double;
+
+var
+ f_Hdc : LongInt;
+//______________________________________________________________________________
+procedure InitGL;	// All Setup For OpenGL Goes Here
+begin
+// select clearing color
+   glClearColor( 1.0, 1.0, 1.0, 0);
+   glShadeModel (GL_FLAT);
+   glMatrixMode(GL_PROJECTION);
+   glLoadIdentity();
+end;
+
+procedure drawOneLine(x1,y1,x2,y2 : single);
+begin
+  glBegin(GL_LINES);
+    glVertex2f(x1,y1);  glVertex2f(x2,y2);
+  glEnd();
+end;
+//______________________________________________________________________________
+procedure DrawGLScene();
+ // Here's Where We Do All The Drawing!!!
+var i: integer;
+begin
+   glClear (GL_COLOR_BUFFER_BIT);
+{/* select black for all lines  */}
+   glColor3f (0.0, 0.0, 0.0);
+   glLoadIdentity();
+  glEnable (GL_LINE_STIPPLE);
+  glLineStipple (1, $0101);  //  dotted
+   for i:=-9 to 9 do
+     begin
+      drawoneline(i,-9,i,9);
+      drawoneline(-9,i,9,i);
+     end;
+      glDisable (GL_LINE_STIPPLE);
+   glFlush ();
+end;
+//______________________________________________________________________________
+procedure TForm1.FormCreate(Sender: TObject);
+begin
+  // Create a rendering context.
+  f_Hdc := GetDC(handle);
+  SetDCPixelFormat(f_Hdc,16,16);
+  InitGL;
+  xo:=0;xc:=0;
+  yo:=0;yc:=0;
+  count:=0;
+  EN:=0;
+  f:=0;
+end;
+//______________________________________________________________________________
+procedure TForm1.FormDestroy(Sender: TObject);
+begin
+  CleanUp(f_Hdc);// Clean up and terminate.
+end;
+//______________________________________________________________________________
+procedure TForm1.FormPaint(Sender: TObject);
+begin
+  wglMakeCurrent(f_Hdc,hrc); //activate the RC
+  DrawGLScene;// Draw the scene.
+end;
+//______________________________________________________________________________
+procedure TForm1.FormResize(Sender: TObject);
+ begin
+  // Redefine the viewing volume and viewport
+  //when the window size changes.
+   wglMakeCurrent(f_Hdc, hrc);
+   // Now, set up the viewing area-select the full client area
+   glViewport( 0, 0, Width , Height);
+   // Choose the projection matrix to be the matrix
+   // manipulated by the following calls
+        glMatrixMode (GL_PROJECTION);
+  // Set the projection matrix to be the identity matrix
+        glLoadIdentity();
+  // Define the dimensions of the Orthographic Viewing Volume
+          glOrtho (-13, 13, -13, 13, -13, 13);
+  //      gluOrtho2D(-9, 9, -9, 9);
+  // Choose the modelview matrix to be the matrix
+  // manipulated by further calls
+        glMatrixMode (GL_MODELVIEW); // this is Necessary for glTranslatef !
+   DrawGLScene();
+ end;
+
+//______________________________________________________________________________
+function GetOGLPos(X, Y: Integer): T3D_Point;
+var
+	viewport:   array [1..4]  of Integer;
+	modelview:  array [1..16] of Double;
+	projection: array [1..16] of Double;
+	winZ: Single;
+begin
+	glGetDoublev( GL_MODELVIEW_MATRIX, @modelview );
+	glGetDoublev( GL_PROJECTION_MATRIX, @projection );
+	glGetIntegerv( GL_VIEWPORT, @viewport );
+
+	// In Delphi A Y Value Of 0 Returns An Unknown Value
+	// I Discovered This While I Was Testing A Crosshair
+	if( Y = 0 )then Y := 1;
+
+	glReadPixels(	X, -Y, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, @winZ );
+	gluUnProject(	X, viewport[4]-Y, winZ,
+			@modelview, @projection, @viewport,
+			Result[1], Result[2], Result[3]);
+end;
+ //_____________________________________________________________________________
+ procedure drawpolygon(var t:T3D_Point);
+ begin
+    count:=count+1;// count: number of points
+    if(count=1)then
+    begin
+       xo:=t[1];yo:=t[2]-2;
+       xc:=xo;yc:=yo;
+    end
+    else
+    begin
+      xc:=t[1];yc:=t[2]-2;
+      glColor3f(0,0,1);
+      drawOneLine(xc,yc,xo,yo);
+      glFlush();
+      m[count-1]:=(yo-yc)/(xo-xc);
+      b[count-1]:=yo-m[count-1]*xo;
+      xo:=xc;yo:=yc;
+    end;
+    AX[count]:=xc;AY[count]:=yc;
+end;
+//______________________________________________________________________________
+function is_online(var x1,x2,a:Double):Integer;
+var  max,min:Double;
+begin
+   is_online:=0;
+   if(x2<x1)then begin min:=x2; max:=x1; end
+   else          begin min:=x1; max:=x2; end;
+   if((a>=min)and(a<=max))then is_online:=1;
+
+end;
+//______________________________________________________________________________
+procedure chek();
+var c,i:Integer;
+    ml,bl,xt,yt:Double;
+begin
+    c:=0;
+    ml:=(yo-yc)/(xo-xc);
+    bl:=yo-ml*xo;
+    for i:=1 to count do
+    begin
+      if(ml=m[i])then continue;
+      xt:=(bl-b[i])/(m[i]-ml);
+      yt:=ml*xt+bl;
+      if((i<count)and(is_online(AX[i],AX[i+1],xt)=1)and(is_online(xo,xc,xt)=1))then
+        c:=c+1
+
+       else if((i=count)and(is_online(AX[i],AX[1],xt)=1)and(is_online(xo,xc,xt)=1))then
+        c:=c+1;
+    end;
+    //ShowMessage();
+    ShowMessage(IntToStr(c));
+end;
+//______________________________________________________________________________
+procedure testline(var t:T3D_Point);
+begin
+    if(f=0)then //first pointof test line
+    begin
+        xo:=t[1];
+        yo:=t[2]-2;
+        f:=f+1;
+    end
+    else //second point of test line
+    begin
+      xc:=t[1];yc:=t[2]-2;
+      f:=0;
+       glColor3f(1,0,0);
+      drawOneLine(xc,yc,xo,yo);
+      glFlush();
+      chek();
+    end;
+end;
+//______________________________________________________________________________
+procedure TForm1.FormMouseDown(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
+  var t:T3D_Point;
+  begin
+  t:=GetOGLPos(X,Y) ;
+  if(EN=0)then
+    drawpolygon(t)
+  else
+    testline(t);
+end;
+//______________________________________________________________________________
+
+procedure TForm1.FormKeyDown(Sender: TObject; var Key: Word;
+  Shift: TShiftState);
+begin
+    if(key=vk_down)then
+    begin
+      EN:=1;
+      drawOneLine(xc,yc,AX[1],AY[1]);
+      glFlush();
+      m[count]:=(AY[1]-yc)/(AX[1]-xc);
+      b[count]:=yc- m[count]*xc;
+    end;
+end;
+
+//------------------------------------------------------------------------------
+end.
+
+
